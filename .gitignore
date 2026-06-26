@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# 敏感文件：access token 等凭证绝不上传
+access_token.txt
+*.token
+.env
+*.secret
+
+# 操作系统 / 编辑器
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log

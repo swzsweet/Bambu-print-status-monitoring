@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Bambu 打印状态</title>
+  <meta name="theme-color" content="#00ae42" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Bambu 打印状态" />
+  <script src="https://static.geetest.com/v4/gt4.js"></script>
+  <style>
+    :root {
+      --green: #00ae42;
+      --green-dark: #009939;
+      --bg: #f5f6f8;
+      --border: #e2e5ea;
+      --text: #1f2329;
+      --muted: #8a909a;
+      --danger: #e34d4d;
+    }
+    * { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+        "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .shell { width: 100%; max-width: 460px; }
+    .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+    .head-actions { display: flex; gap: 8px; flex: none; }
+    .icon-btn {
+      flex: none;
+      width: 38px; height: 38px;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 10px;
+      background: #f7f8fa;
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+    .icon-btn:hover { background: #eef0f3; color: var(--text); }
+    .btn-entry {
+      width: 100%;
+      margin-top: 16px;
+      padding: 14px;
+      background: transparent;
+      color: var(--muted);
+      border: 1px dashed var(--border);
+      border-radius: 12px;
+    }
+    .btn-entry:hover { color: var(--green-dark); border-color: var(--green); background: #f7fbf8; }
+    /* 账户信息浮窗 */
+    .modal-mask {
+      position: fixed; inset: 0;
+      background: rgba(15,18,23,.45);
+      display: flex; align-items: center; justify-content: center;
+      padding: 20px;
+      opacity: 0; pointer-events: none;
+      transition: opacity .2s;
+      z-index: 60;
+    }
+    .modal-mask.show { opacity: 1; pointer-events: auto; }
+    .modal {
+      width: 100%; max-width: 360px;
+      background: #fff; border-radius: 16px; padding: 22px 24px;
+      transform: translateY(12px) scale(.98);
+      transition: transform .2s;
+      box-shadow: 0 20px 50px rgba(0,0,0,.25);
+    }
+    .modal-mask.show .modal { transform: translateY(0) scale(1); }
+    .modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+    .modal-head > span { font-size: 16px; font-weight: 600; }
+    .modal-head .icon-btn { width: 32px; height: 32px; }
+    /* 浮窗提示 toast */
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: calc(28px + env(safe-area-inset-bottom));
+      transform: translateX(-50%) translateY(20px);
+      background: #1f2329;
+      color: #fff;
+      font-size: 14px;
+      padding: 12px 20px;
+      border-radius: 24px;
+      box-shadow: 0 8px 24px rgba(0,0,0,.2);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .25s, transform .25s;
+      z-index: 50;
+      max-width: 88vw;
+      text-align: center;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    .toast.error { background: var(--danger); }
+    .card {
+      width: 100%;
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06);
+      padding: 28px 24px;
+    }
+    h1 { font-size: 19px; margin: 0 0 4px; }
+    .subtitle { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
+    label { display: block; font-size: 13px; margin: 16px 0 6px; font-weight: 500; }
+    input, textarea {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-size: 16px;
+      outline: none;
+      transition: border-color 0.15s;
+      font-family: inherit;
+    }
+    textarea { resize: vertical; word-break: break-all; }
+    input:focus, textarea:focus { border-color: var(--green); }
+    .row { display: flex; gap: 10px; }
+    .row input { flex: 1; }
+    button {
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, opacity 0.15s;
+    }
+    .btn-primary { width: 100%; padding: 13px; margin-top: 20px; background: var(--green); color: #fff; }
+    .btn-primary:hover { background: var(--green-dark); }
+    .btn-code { padding: 0 16px; white-space: nowrap; background: #fff; color: var(--green); border: 1px solid var(--green); }
+    .btn-code:hover { background: #f0fbf3; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .msg { margin-top: 16px; padding: 12px 14px; border-radius: 10px; font-size: 13px; display: none; white-space: pre-wrap; word-break: break-all; }
+    .msg.error { display: block; background: #fdeaea; color: var(--danger); }
+    .msg.info { display: block; background: #eef6ff; color: #2a6fdb; }
+    .result { margin-top: 22px; display: none; }
+    .result.show { display: block; }
+    .token-box {
+      background: #0d1117; color: #7ee787; border-radius: 10px; padding: 14px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px; word-break: break-all; line-height: 1.5; max-height: 160px; overflow: auto;
+    }
+    .btn-copy { width: 100%; padding: 11px; margin-top: 10px; background: #f0fbf3; color: var(--green-dark); border: 1px solid var(--green); }
+    .btn-verify { width: 100%; padding: 11px; margin-top: 10px; background: #fff; color: var(--text); border: 1px solid var(--border); }
+    .btn-verify:hover { background: #f7f8fa; }
+    .input-actions { display: flex; gap: 8px; margin-top: 8px; }
+    .input-actions button { flex: 1; padding: 9px; font-size: 13px; background: #f7f8fa; color: var(--muted); border: 1px solid var(--border); }
+    .input-actions button:hover { background: #eef0f3; }
+    .devices { margin-top: 20px; display: none; }
+    .devices.show { display: block; }
+    .dev-item { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+    .dev-head { display: flex; align-items: center; justify-content: space-between; font-weight: 600; font-size: 14px; }
+    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+    .dot.on { background: var(--green); }
+    .dot.off { background: #c4c9d1; }
+    .dev-meta { color: var(--muted); font-size: 12px; margin-top: 6px; line-height: 1.6; }
+    .dev-empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
+    .warn { margin-top: 20px; font-size: 12px; color: var(--muted); line-height: 1.6; border-top: 1px solid var(--border); padding-top: 14px; }
+    .dev-item.selectable { cursor: pointer; transition: border-color .15s, background .15s; }
+    .dev-item.selectable:hover { border-color: var(--green); background: #f7fbf8; }
+    .dev-item.active { border-color: var(--green); background: #f0fbf3; }
+    .vinfo { margin-top: 16px; display: none; }
+    .vinfo.show { display: block; }
+    .vinfo-row { display: flex; justify-content: space-between; font-size: 14px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+    .vinfo-row:last-child { border-bottom: none; }
+    .vinfo-row span { color: var(--muted); }
+    .vinfo-row b { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; word-break: break-all; text-align: right; }
+    .monitor { margin-top: 20px; display: none; padding-top: 20px; border-top: 1px solid var(--border); }
+    .monitor.show { display: block; }
+    .mon-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+    .mon-head > span:first-child { font-weight: 600; font-size: 15px; }
+    .mon-status { font-size: 12px; padding: 3px 10px; border-radius: 20px; background: #eef0f3; color: var(--muted); white-space: nowrap; }
+    .mon-status.online { background: #e7f8ee; color: var(--green-dark); }
+    .mon-status.error { background: #fdeaea; color: var(--danger); }
+    .mon-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .mon-cell { background: #f7f8fa; border-radius: 10px; padding: 12px 14px; }
+    .mon-k { font-size: 11px; color: var(--muted); margin-bottom: 5px; }
+    .mon-v { font-size: 18px; font-weight: 600; }
+    .mon-v small { font-size: 12px; font-weight: 400; color: var(--muted); margin-left: 2px; }
+    .mon-progress { height: 8px; background: #eef0f3; border-radius: 6px; margin: 16px 0; overflow: hidden; }
+    .mon-progress-bar { height: 100%; width: 0%; background: var(--green); transition: width .4s; }
+    .mon-sub { margin-top: 14px; }
+    .ams-wrap { display: flex; flex-wrap: wrap; gap: 8px; }
+    .ams-slot { display: flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; font-size: 12px; }
+    .ams-chip { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(0,0,0,.15); }
+    .hms-item { font-size: 12px; color: var(--danger); padding: 4px 0; }
+    @media (max-width: 380px) {
+      .card { padding: 22px 18px; }
+      .mon-v { font-size: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <!-- Bambu 打印状态（Token 验证 + 实时监控） -->
+    <div id="panel-status">
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <h1>Bambu 打印状态</h1>
+            <p class="subtitle" id="statusSubtitle">输入 Access Token，验证并实时查看打印机状态</p>
+          </div>
+          <div class="head-actions">
+            <button class="icon-btn" id="accountBtn" type="button" title="账户信息" style="display:none;">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            </button>
+            <button class="icon-btn" id="reVerifyBtn" type="button" title="重新验证 / 切换 Token" style="display:none;">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- 验证区：验证成功后折叠 -->
+        <div id="verifyArea">
+          <label for="vToken">Access Token</label>
+          <input id="vToken" type="text" placeholder="粘贴 access token" autocomplete="off" />
+          <div class="input-actions">
+            <button id="vClearBtn" type="button">清除暂存</button>
+          </div>
+          <button class="btn-primary" id="vVerifyBtn" type="button">验证 Token</button>
+        </div>
+
+        <div class="msg" id="vMsg"></div>
+
+        <div class="devices" id="vDevices">
+          <div id="vDevList"></div>
+        </div>
+
+        <div class="monitor" id="monitorPanel">
+          <div class="mon-head">
+            <span id="monTitle">实时状态</span>
+            <span class="mon-status" id="monStatus">连接中…</span>
+          </div>
+          <div class="mon-grid">
+            <div class="mon-cell"><div class="mon-k">喷嘴温度</div><div class="mon-v"><span id="mNozzle">—</span><small id="mNozzleT"></small></div></div>
+            <div class="mon-cell"><div class="mon-k">热床温度</div><div class="mon-v"><span id="mBed">—</span><small id="mBedT"></small></div></div>
+            <div class="mon-cell"><div class="mon-k">腔体温度</div><div class="mon-v"><span id="mChamber">—</span></div></div>
+            <div class="mon-cell"><div class="mon-k">打印状态</div><div class="mon-v"><span id="mState">—</span></div></div>
+            <div class="mon-cell"><div class="mon-k">进度</div><div class="mon-v"><span id="mPercent">—</span></div></div>
+            <div class="mon-cell"><div class="mon-k">剩余时间</div><div class="mon-v"><span id="mRemain">—</span></div></div>
+            <div class="mon-cell"><div class="mon-k">层数</div><div class="mon-v"><span id="mLayer">—</span></div></div>
+            <div class="mon-cell"><div class="mon-k">打印速度</div><div class="mon-v"><span id="mSpeed">—</span></div></div>
+          </div>
+          <div class="mon-progress"><div class="mon-progress-bar" id="mBar"></div></div>
+          <div class="mon-sub">
+            <label>AMS 耗材</label>
+            <div id="mAms" class="ams-wrap"><span class="dev-empty">暂无 AMS 数据</span></div>
+          </div>
+          <div class="mon-sub">
+            <label>故障码 (HMS)</label>
+            <div id="mHms"><span class="dev-empty">无故障</span></div>
+          </div>
+          <button class="btn-verify" id="monStopBtn" type="button">停止监控</button>
+        </div>
+
+        <div class="warn">
+          实时状态通过拓竹云 MQTT 订阅 device/序列号/report 获取，数据仅在你的浏览器与本机之间传输。Token 仅暂存在本机浏览器。
+        </div>
+      </div>
+    </div>
+
+    <!-- 底部入口：没有 Token？点此获取 -->
+    <button class="btn-entry" id="getTokenEntry" type="button">没有 Token？点此获取 →</button>
+
+    <!-- 获取 Token（默认隐藏，点底部入口展开） -->
+    <div id="panel-token" style="display:none;">
+      <div class="card">
+        <h1>获取 Access Token</h1>
+        <p class="subtitle">中国区账号 · 手机号 + 短信验证码登录</p>
+
+        <label for="phone">手机号</label>
+        <input id="phone" type="tel" inputmode="numeric" placeholder="请输入手机号（不带 +86）" autocomplete="off" />
+
+        <label for="code">短信验证码</label>
+        <div class="row">
+          <input id="code" type="text" inputmode="numeric" placeholder="6 位验证码" autocomplete="off" />
+          <button class="btn-code" id="sendBtn" type="button">获取验证码</button>
+        </div>
+
+        <button class="btn-primary" id="loginBtn" type="button">登录并获取 Token</button>
+
+        <div class="msg" id="msg"></div>
+
+        <div class="result" id="result">
+          <label>Access Token</label>
+          <div class="token-box" id="tokenBox"></div>
+          <button class="btn-copy" id="copyBtn" type="button">复制 Token</button>
+          <button class="btn-verify" id="useTokenBtn" type="button">用此 Token 查看打印状态</button>
+        </div>
+
+        <div class="warn">
+          ⚠️ 此 Token 等同于账号登录凭证，可控制绑定的打印机，请勿分享或上传到公开仓库。<br />
+          程序仅在本机运行，不会上传你的账号信息到第三方。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 浮窗提示 -->
+  <div class="toast" id="toast"></div>
+
+  <!-- 账户信息浮窗 -->
+  <div class="modal-mask" id="accountModal">
+    <div class="modal">
+      <div class="modal-head">
+        <span>账户信息</span>
+        <button class="icon-btn" id="accountCloseBtn" type="button" title="关闭">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </div>
+      <div class="vinfo-row"><span>账号用户名</span><b id="vUsername">—</b></div>
+      <div class="vinfo-row"><span>绑定打印机</span><b id="vDevCount">0</b></div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    function postJSON(url, body) {
+      return fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }).then(async (r) => ({ status: r.status, data: await r.json() }));
+    }
+    function escapeHtml(s) {
+      return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+      }[c]));
+    }
+
+    // ===== 浮窗提示 toast =====
+    let toastTimer = null;
+    function toast(text, type) {
+      const el = $("toast");
+      el.textContent = text;
+      el.className = "toast show" + (type === "error" ? " error" : "");
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { el.className = "toast" + (type === "error" ? " error" : ""); }, 2600);
+    }
+
+    // ===== 获取 Token 区：底部入口展开 / 收起 =====
+    const panelToken = $("panel-token"), getTokenEntry = $("getTokenEntry");
+    function showTokenPanel() {
+      panelToken.style.display = "block";
+      getTokenEntry.style.display = "none";
+      panelToken.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    function hideTokenPanel() {
+      panelToken.style.display = "none";
+      getTokenEntry.style.display = "block";
+    }
+    getTokenEntry.addEventListener("click", showTokenPanel);
+
+    // ===== 本地暂存 =====
+    const LS_TOKEN = "bambu_token", LS_SERIAL = "bambu_serial";
+    const saveToken = (t) => { try { localStorage.setItem(LS_TOKEN, t); } catch {} };
+    const loadToken = () => { try { return localStorage.getItem(LS_TOKEN) || ""; } catch { return ""; } };
+    const saveSerial = (s) => { try { localStorage.setItem(LS_SERIAL, s); } catch {} };
+    const loadSerial = () => { try { return localStorage.getItem(LS_SERIAL) || ""; } catch { return ""; } };
+    const clearStore = () => { try { localStorage.removeItem(LS_TOKEN); localStorage.removeItem(LS_SERIAL); } catch {} };
+
+    // ===== Tab 2：获取 Token =====
+    const phoneEl = $("phone"), codeEl = $("code");
+    const sendBtn = $("sendBtn"), loginBtn = $("loginBtn"), copyBtn = $("copyBtn");
+    const msg = $("msg"), result = $("result"), tokenBox = $("tokenBox");
+    const useTokenBtn = $("useTokenBtn");
+
+    function showMsg(t, type) { msg.textContent = t; msg.className = "msg " + type; }
+    function clearMsg() { msg.className = "msg"; msg.textContent = ""; }
+
+    let timer = null;
+    function resetSendBtn() { if (timer) clearInterval(timer); sendBtn.disabled = false; sendBtn.textContent = "获取验证码"; }
+    function startCountdown(sec) {
+      let n = sec; sendBtn.disabled = true; sendBtn.textContent = `${n}s 后重发`;
+      timer = setInterval(() => {
+        n--;
+        if (n <= 0) { resetSendBtn(); } else { sendBtn.textContent = `${n}s 后重发`; }
+      }, 1000);
+    }
+
+    function runCaptcha(captchaId, phone) {
+      showMsg("请完成滑块验证 ...", "info");
+      initGeetest4({ captchaId, product: "popup", language: "zho" }, function (captchaObj) {
+        captchaObj.onReady(() => captchaObj.showCaptcha())
+          .onSuccess(async () => {
+            const v = captchaObj.getValidate();
+            captchaObj.destroy();
+            if (!v) { resetSendBtn(); showMsg("验证失败，请重试。", "error"); return; }
+            showMsg("验证通过，正在发送验证码 ...", "info");
+            try {
+              const { data } = await postJSON("/api/send-code", {
+                phone,
+                captcha: { captcha_id: captchaId, lot_number: v.lot_number, captcha_output: v.captcha_output, pass_token: v.pass_token, gen_time: v.gen_time },
+              });
+              if (data.ok) { showMsg(data.message || "验证码已发送，请查收短信。", "info"); startCountdown(60); codeEl.focus(); }
+              else { resetSendBtn(); showMsg(data.error || "发送失败", "error"); }
+            } catch (e) { resetSendBtn(); showMsg("请求失败：" + e.message, "error"); }
+          })
+          .onError((err) => { captchaObj.destroy(); resetSendBtn(); showMsg("验证组件加载失败：" + (err && err.msg ? err.msg : ""), "error"); })
+          .onClose(() => { captchaObj.destroy(); resetSendBtn(); showMsg("已取消验证。", "info"); });
+      });
+    }
+    sendBtn.addEventListener("click", async () => {
+      const phone = phoneEl.value.trim();
+      if (!phone) { showMsg("请先输入手机号", "error"); return; }
+      if (typeof initGeetest4 === "undefined") { showMsg("验证组件未加载，请检查网络后刷新页面。", "error"); return; }
+      clearMsg(); sendBtn.disabled = true; sendBtn.textContent = "准备验证...";
+      try {
+        const { data } = await postJSON("/api/captcha-id", { phone });
+        if (data.ok && data.captcha_id) runCaptcha(data.captcha_id, phone);
+        else if (data.ok && data.sent) { showMsg(data.message || "验证码已发送。", "info"); startCountdown(60); codeEl.focus(); }
+        else { resetSendBtn(); showMsg(data.error || "获取验证挑战失败", "error"); }
+      } catch (e) { resetSendBtn(); showMsg("请求失败：" + e.message, "error"); }
+    });
+
+    loginBtn.addEventListener("click", async () => {
+      const phone = phoneEl.value.trim(), code = codeEl.value.trim();
+      if (!phone || !code) { showMsg("请输入手机号和验证码", "error"); return; }
+      clearMsg(); loginBtn.disabled = true; loginBtn.textContent = "登录中...";
+      try {
+        const { data } = await postJSON("/api/login", { phone, code });
+        if (data.ok) {
+          tokenBox.textContent = data.access_token;
+          result.classList.add("show");
+          showMsg("✅ 获取成功！", "info");
+          vToken.value = data.access_token;
+          saveToken(data.access_token);
+        } else { showMsg(data.error || "登录失败", "error"); }
+      } catch (e) { showMsg("请求失败：" + e.message, "error"); }
+      finally { loginBtn.disabled = false; loginBtn.textContent = "登录并获取 Token"; }
+    });
+
+    copyBtn.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(tokenBox.textContent); copyBtn.textContent = "已复制 ✓"; setTimeout(() => (copyBtn.textContent = "复制 Token"), 1500); }
+      catch { showMsg("复制失败，请手动选择复制。", "error"); }
+    });
+
+    useTokenBtn.addEventListener("click", () => {
+      hideTokenPanel();
+      vToken.value = tokenBox.textContent.trim();
+      saveToken(vToken.value);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      doVerify();
+    });
+    // ===== Tab 1：Bambu 打印状态 =====
+    const vToken = $("vToken"), vVerifyBtn = $("vVerifyBtn"), vMsg = $("vMsg"), vClearBtn = $("vClearBtn");
+    const vUsername = $("vUsername"), vDevCount = $("vDevCount");
+    const vDevices = $("vDevices"), vDevList = $("vDevList");
+    const verifyArea = $("verifyArea"), reVerifyBtn = $("reVerifyBtn");
+    const accountBtn = $("accountBtn"), accountModal = $("accountModal"), accountCloseBtn = $("accountCloseBtn");
+    const monitorPanel = $("monitorPanel"), monStatus = $("monStatus"), monTitle = $("monTitle"), monStopBtn = $("monStopBtn");
+
+    let curToken = "", curSerial = "", evtSource = null, lastDevices = [];
+
+    // 账户信息浮窗
+    function openAccount() { accountModal.classList.add("show"); }
+    function closeAccount() { accountModal.classList.remove("show"); }
+    accountBtn.addEventListener("click", openAccount);
+    accountCloseBtn.addEventListener("click", closeAccount);
+    accountModal.addEventListener("click", (e) => { if (e.target === accountModal) closeAccount(); });
+
+    function showVMsg(t, type) { vMsg.textContent = t; vMsg.className = "msg " + type; }
+    function clearVMsg() { vMsg.className = "msg"; vMsg.textContent = ""; }
+
+    // 验证成功后折叠验证区，右上角显示「账户」与「重新验证」两个 icon
+    function collapseVerify() {
+      verifyArea.style.display = "none";
+      reVerifyBtn.style.display = "flex";
+      accountBtn.style.display = "flex";
+      $("statusSubtitle").textContent = "实时查看打印机状态";
+    }
+    function expandVerify() {
+      verifyArea.style.display = "block";
+      reVerifyBtn.style.display = "none";
+      accountBtn.style.display = "none";
+      $("statusSubtitle").textContent = "输入 Access Token，验证并实时查看打印机状态";
+      closeAccount();
+    }
+
+    async function doVerify(autoSerial) {
+      const token = vToken.value.trim();
+      if (!token) { showVMsg("请粘贴 Access Token", "error"); return; }
+      clearVMsg();
+      stopMonitor();
+      monitorPanel.classList.remove("show");
+      vVerifyBtn.disabled = true; vVerifyBtn.textContent = "验证中...";
+      try {
+        const { data } = await postJSON("/api/verify-token", { token });
+        if (data.ok) {
+          curToken = token;
+          saveToken(token);
+          vUsername.textContent = data.username || "（无法解析）";
+          vDevCount.textContent = data.count;
+          lastDevices = data.devices || [];
+          renderDevList(lastDevices);
+          clearVMsg();
+          toast(`Token 有效，找到 ${data.count} 台设备`);
+          collapseVerify();
+          // 自动恢复上次选中的打印机
+          const want = autoSerial || loadSerial();
+          if (want && lastDevices.some((d) => d.dev_id === want)) {
+            const el = vDevList.querySelector(`.dev-item[data-serial="${CSS.escape(want)}"]`);
+            if (el) { el.classList.add("active"); const d = lastDevices.find((x) => x.dev_id === want); startMonitor(want, d ? d.name : ""); }
+          }
+        } else { showVMsg(data.error || "验证失败", "error"); }
+      } catch (e) { showVMsg("请求失败：" + e.message, "error"); }
+      finally { vVerifyBtn.disabled = false; vVerifyBtn.textContent = "验证 Token"; }
+    }
+
+    vVerifyBtn.addEventListener("click", () => doVerify());
+    reVerifyBtn.addEventListener("click", () => { expandVerify(); clearVMsg(); vToken.focus(); });
+    vClearBtn.addEventListener("click", () => {
+      clearStore();
+      vToken.value = "";
+      stopMonitor();
+      monitorPanel.classList.remove("show");
+      vDevices.classList.remove("show");
+      expandVerify();
+      toast("已清除本地暂存的 Token");
+    });
+
+    function renderDevList(list) {
+      vDevices.classList.add("show");
+      if (!list.length) { vDevList.innerHTML = '<div class="dev-empty">该账号下没有绑定的打印机。</div>'; return; }
+      vDevList.innerHTML = list.map((d) => {
+        const model = [d.dev_product_name, d.dev_model_name].filter(Boolean).join(" · ");
+        return `
+          <div class="dev-item selectable" data-serial="${escapeHtml(d.dev_id || "")}" data-name="${escapeHtml(d.name || "")}">
+            <div class="dev-head">
+              <span>${escapeHtml(d.name || "未命名设备")}</span>
+              <span><span class="dot ${d.online ? "on" : "off"}"></span>${d.online ? "在线" : "离线"}</span>
+            </div>
+            <div class="dev-meta">型号：${escapeHtml(model || "—")} · 喷嘴：${escapeHtml(d.nozzle_diameter != null ? d.nozzle_diameter + "mm" : "—")}<br/>点击查看实时状态</div>
+          </div>`;
+      }).join("");
+      vDevList.querySelectorAll(".dev-item.selectable").forEach((el) => {
+        el.addEventListener("click", () => {
+          vDevList.querySelectorAll(".dev-item").forEach((x) => x.classList.remove("active"));
+          el.classList.add("active");
+          startMonitor(el.dataset.serial, el.dataset.name);
+        });
+      });
+    }
+    async function startMonitor(serial, name) {
+      if (!serial) { showVMsg("该设备无序列号，无法监控。", "error"); return; }
+      stopMonitor();
+      curSerial = serial;
+      saveSerial(serial);
+      monTitle.textContent = (name || "打印机") + " · 实时状态";
+      setMonStatus("connecting", "连接中…");
+      resetMonitorView();
+      monitorPanel.classList.add("show");
+      try {
+        const { data } = await postJSON("/api/monitor/start", { token: curToken, serial });
+        if (!data.ok) { setMonStatus("error", data.error || "启动失败"); return; }
+        openStream(serial);
+      } catch (e) { setMonStatus("error", "启动失败：" + e.message); }
+    }
+
+    function openStream(serial) {
+      if (evtSource) evtSource.close();
+      evtSource = new EventSource("/api/monitor/stream?serial=" + encodeURIComponent(serial));
+      evtSource.onmessage = (ev) => {
+        let snap; try { snap = JSON.parse(ev.data); } catch { return; }
+        if (snap.status === "online") setMonStatus("online", "已连接");
+        else if (snap.status === "error") setMonStatus("error", snap.error || "连接错误");
+        else if (snap.status === "closed") { setMonStatus("error", "已停止"); evtSource.close(); }
+        else setMonStatus("connecting", "连接中…");
+        if (snap.state) renderState(snap.state);
+      };
+      evtSource.onerror = () => setMonStatus("error", "连接中断");
+    }
+
+    function stopMonitor() {
+      if (evtSource) { evtSource.close(); evtSource = null; }
+      if (curSerial) postJSON("/api/monitor/stop", { serial: curSerial }).catch(() => {});
+    }
+
+    monStopBtn.addEventListener("click", () => {
+      stopMonitor();
+      setMonStatus("error", "已停止");
+      monitorPanel.classList.remove("show");
+      vDevList.querySelectorAll(".dev-item").forEach((x) => x.classList.remove("active"));
+    });
+
+    function setMonStatus(cls, text) {
+      monStatus.className = "mon-status " + (cls === "online" ? "online" : cls === "error" ? "error" : "");
+      monStatus.textContent = text;
+    }
+    function resetMonitorView() {
+      ["mNozzle","mBed","mChamber","mState","mPercent","mRemain","mLayer","mSpeed"].forEach((id) => $(id).textContent = "—");
+      $("mNozzleT").textContent = ""; $("mBedT").textContent = "";
+      $("mBar").style.width = "0%";
+      $("mAms").innerHTML = '<span class="dev-empty">暂无 AMS 数据</span>';
+      $("mHms").innerHTML = '<span class="dev-empty">无故障</span>';
+    }
+    function fmtTime(min) {
+      if (min == null || min < 0) return "—";
+      const h = Math.floor(min / 60), m = min % 60;
+      return h > 0 ? `${h}小时${m}分` : `${m}分`;
+    }
+    const GCODE_STATE_CN = { IDLE:"空闲", PREPARE:"准备中", RUNNING:"打印中", PAUSE:"已暂停", FINISH:"已完成", FAILED:"已失败", SLICING:"切片中", unknown:"未知" };
+
+    function renderState(s) {
+      const num = (v) => (v == null ? "—" : v);
+      if (s.nozzle_temper != null) { $("mNozzle").textContent = Math.round(s.nozzle_temper) + "°"; $("mNozzleT").textContent = s.nozzle_target_temper != null ? "/ " + Math.round(s.nozzle_target_temper) + "°" : ""; }
+      if (s.bed_temper != null) { $("mBed").textContent = Math.round(s.bed_temper) + "°"; $("mBedT").textContent = s.bed_target_temper != null ? "/ " + Math.round(s.bed_target_temper) + "°" : ""; }
+      if (s.chamber_temper != null) $("mChamber").textContent = Math.round(s.chamber_temper) + "°";
+      if (s.gcode_state != null) $("mState").textContent = (GCODE_STATE_CN[s.gcode_state] || s.gcode_state);
+      if (s.mc_percent != null) { $("mPercent").textContent = s.mc_percent + "%"; $("mBar").style.width = Math.max(0, Math.min(100, s.mc_percent)) + "%"; }
+      if (s.mc_remaining_time != null) $("mRemain").textContent = fmtTime(s.mc_remaining_time);
+      if (s.layer_num != null || s.total_layer_num != null) $("mLayer").textContent = `${num(s.layer_num)} / ${num(s.total_layer_num)}`;
+      if (s.spd_lvl != null) $("mSpeed").textContent = ({1:"静音",2:"标准",3:"运动",4:"高速"}[s.spd_lvl] || s.spd_lvl);
+      renderAms(s.ams);
+      renderHms(s.hms);
+    }
+    function renderAms(ams) {
+      const trays = [];
+      if (ams && Array.isArray(ams.ams)) ams.ams.forEach((u) => (u.tray || []).forEach((t) => trays.push(t)));
+      if (!trays.length) { $("mAms").innerHTML = '<span class="dev-empty">暂无 AMS 数据</span>'; return; }
+      $("mAms").innerHTML = trays.map((t) => {
+        const color = t.tray_color ? "#" + String(t.tray_color).slice(0, 6) : "#ddd";
+        return `<div class="ams-slot"><span class="ams-chip" style="background:${escapeHtml(color)}"></span>${escapeHtml(t.tray_type || "空")}</div>`;
+      }).join("");
+    }
+    function renderHms(hms) {
+      if (!hms || !Array.isArray(hms) || !hms.length) { $("mHms").innerHTML = '<span class="dev-empty">无故障</span>'; return; }
+      $("mHms").innerHTML = hms.map((h) => {
+        const code = ((h.attr >>> 0).toString(16).padStart(8, "0") + "_" + (h.code >>> 0).toString(16).padStart(8, "0")).toUpperCase();
+        return `<div class="hms-item">⚠️ ${escapeHtml(code)}</div>`;
+      }).join("");
+    }
+
+    // ===== 初始化：恢复暂存的 token，自动验证 + 恢复选中打印机 =====
+    (function init() {
+      const t = loadToken();
+      if (t) { vToken.value = t; doVerify(loadSerial()); }
+    })();
+
+    // ===== PWA：注册 service worker =====
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/sw.js").catch(() => {});
+      });
+    }
+  </script>
+</body>
+</body>
+</html>
