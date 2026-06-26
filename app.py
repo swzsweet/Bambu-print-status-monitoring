@@ -10,29 +10,15 @@
 
 import json
 import os
-import ssl
-import time
 import base64
 import socket
-import threading
-import queue
 from curl_cffi import requests as creq
 from curl_cffi.requests.exceptions import Timeout as CurlTimeout, RequestException as CurlRequestException
-import paho.mqtt.client as mqtt
 from flask import (
-    Flask, request, jsonify, render_template, Response,
-    stream_with_context, send_from_directory,
+    Flask, request, jsonify, render_template, send_from_directory,
 )
 
 app = Flask(__name__)
-
-# 是否运行在 serverless 平台（如 Vercel）。serverless 无法维持常驻 MQTT
-# 连接和 SSE 长连接，实时监控功能在此环境下不可用，需优雅降级提示。
-IS_SERVERLESS = bool(os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
-
-# 拓竹中国区 MQTT broker（TLS）
-MQTT_HOST = "cn.mqtt.bambulab.com"
-MQTT_PORT = 8883
 
 # curl_cffi 伪装真实浏览器的 TLS 指纹。
 # 拓竹中国区接口（bambulab.cn）前置了反爬，普通 requests 的指纹会被识别后挂起，
@@ -310,169 +296,6 @@ def verify_token():
         return jsonify(ok=False, error="连接拓竹服务器超时，请检查网络后重试。"), 504
     except CurlRequestException as e:
         return jsonify(ok=False, error=f"网络请求失败：{e}"), 502
-
-
-# ========== MQTT 实时监控 ==========
-
-PUSH_ALL = {"pushing": {"sequence_id": "0", "command": "pushall"}}
-
-
-class PrinterMonitor:
-    """维护一台打印机的 MQTT 连接，缓存最新 print 状态。"""
-
-    def __init__(self, username: str, token: str, serial: str):
-        self.username = username
-        self.token = token
-        self.serial = serial
-        self.state = {}            # 最新的 print 字段
-        self.status = "connecting"  # connecting / online / error / closed
-        self.error = None
-        self.last_update = 0
-        self._lock = threading.Lock()
-        self._client = None
-        self._stop = threading.Event()
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
-
-    def _run(self):
-        try:
-            client = mqtt.Client(
-                callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
-                client_id=f"bblweb_{int(time.time())}",
-            )
-            client.username_pw_set(self.username, password=self.token)
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-            client.tls_set_context(ctx)
-            client.on_connect = self._on_connect
-            client.on_message = self._on_message
-            client.on_disconnect = self._on_disconnect
-            self._client = client
-            client.connect(MQTT_HOST, MQTT_PORT, keepalive=30)
-            client.loop_forever(retry_first_connection=False)
-        except Exception as e:
-            with self._lock:
-                self.status = "error"
-                self.error = str(e)
-
-    def _on_connect(self, client, userdata, flags, reason_code, properties=None):
-        if reason_code != 0:
-            with self._lock:
-                self.status = "error"
-                self.error = f"MQTT 连接被拒绝：{reason_code}"
-            return
-        with self._lock:
-            self.status = "online"
-            self.error = None
-        client.subscribe(f"device/{self.serial}/report")
-        # 请求一次全量状态
-        client.publish(f"device/{self.serial}/request", json.dumps(PUSH_ALL))
-
-    def _on_message(self, client, userdata, msg):
-        try:
-            data = json.loads(msg.payload)
-        except Exception:
-            return
-        printd = data.get("print")
-        if not isinstance(printd, dict):
-            return
-        with self._lock:
-            # 增量合并：拓竹会推全量(pushall)或增量，统一 merge
-            self.state.update(printd)
-            self.last_update = time.time()
-
-    def _on_disconnect(self, client, userdata, *args):
-        with self._lock:
-            if self.status != "closed":
-                self.status = "connecting"
-
-    def snapshot(self):
-        with self._lock:
-            return {
-                "status": self.status,
-                "error": self.error,
-                "last_update": self.last_update,
-                "state": dict(self.state),
-            }
-
-    def close(self):
-        self._stop.set()
-        with self._lock:
-            self.status = "closed"
-        try:
-            if self._client:
-                self._client.disconnect()
-        except Exception:
-            pass
-
-
-# 当前活跃的监控器：serial -> PrinterMonitor（单用户本地工具，简单处理）
-_monitors = {}
-_monitors_lock = threading.Lock()
-
-
-@app.route("/api/monitor/start", methods=["POST"])
-def monitor_start():
-    """开始监控一台打印机：建立 MQTT 连接。"""
-    if IS_SERVERLESS:
-        return jsonify(ok=False, error="当前部署环境（Vercel 等 serverless）不支持实时监控，请在本机运行或使用常驻进程的平台。"), 501
-    data = request.get_json(silent=True) or {}
-    token = (data.get("token") or "").strip()
-    serial = (data.get("serial") or "").strip()
-    if not token or not serial:
-        return jsonify(ok=False, error="缺少 token 或打印机序列号"), 400
-
-    username = resolve_username(token)
-    if not username:
-        return jsonify(ok=False, error="无法确定 MQTT 用户名（token 解析与 preference 接口均失败）。"), 400
-
-    with _monitors_lock:
-        old = _monitors.pop(serial, None)
-        if old:
-            old.close()
-        _monitors[serial] = PrinterMonitor(username, token, serial)
-    return jsonify(ok=True, message="已开始连接打印机 MQTT。")
-
-
-@app.route("/api/monitor/stop", methods=["POST"])
-def monitor_stop():
-    data = request.get_json(silent=True) or {}
-    serial = (data.get("serial") or "").strip()
-    with _monitors_lock:
-        m = _monitors.pop(serial, None)
-    if m:
-        m.close()
-    return jsonify(ok=True)
-
-
-@app.route("/api/monitor/stream")
-def monitor_stream():
-    """SSE：持续把某台打印机的最新状态推给浏览器。"""
-    serial = (request.args.get("serial") or "").strip()
-
-    @stream_with_context
-    def gen():
-        last_sent = None
-        # 连续 120 次(约2分钟)拿不到监控器则结束
-        while True:
-            with _monitors_lock:
-                m = _monitors.get(serial)
-            if m is None:
-                yield f"data: {json.dumps({'status': 'closed'})}\n\n"
-                return
-            snap = m.snapshot()
-            payload = json.dumps(snap, ensure_ascii=False)
-            if payload != last_sent:
-                last_sent = payload
-                yield f"data: {payload}\n\n"
-            else:
-                # 心跳，保持连接
-                yield ": keep-alive\n\n"
-            time.sleep(1)
-
-    return Response(gen(), mimetype="text/event-stream",
-                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 if __name__ == "__main__":
