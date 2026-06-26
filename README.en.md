@@ -2,6 +2,8 @@
 
 English · [简体中文](./README.md)
 
+🔗 Live demo: **[bambu.shiwz.com](https://bambu.shiwz.com/)**
+
 A web app to monitor your Bambu Lab printer in real time and to obtain an Access Token for China-region accounts.
 
 - **Live print status** — the browser connects **directly** to Bambu Cloud MQTT (`wss`) and subscribes to the printer's status, showing progress / ETA / state, nozzle / bed / chamber temperatures, layers, speed, AMS filament, and error codes (HMS). No persistent backend process required, so it can be deployed on static / serverless platforms like Vercel.

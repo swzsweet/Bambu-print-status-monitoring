@@ -2,6 +2,8 @@
 
 [English](./README.en.md) · 简体中文
 
+🔗 在线预览：**[bambu.shiwz.com](https://bambu.shiwz.com/)**
+
 一个网页应用，用于查看拓竹（Bambu Lab）打印机的实时状态，并获取中国区账号的 Access Token。
 
 - **实时打印状态** —— 浏览器**直连**拓竹云 MQTT（`wss`）订阅打印机状态，展示进度/剩余时间/打印状态、喷嘴/热床/腔体温度、层数、打印速度、AMS 耗材、故障码（HMS）。不依赖后端常驻进程，可部署在 Vercel 等静态/Serverless 平台。
