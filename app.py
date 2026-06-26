@@ -26,6 +26,10 @@ from flask import (
 
 app = Flask(__name__)
 
+# 是否运行在 serverless 平台（如 Vercel）。serverless 无法维持常驻 MQTT
+# 连接和 SSE 长连接，实时监控功能在此环境下不可用，需优雅降级提示。
+IS_SERVERLESS = bool(os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
+
 # 拓竹中国区 MQTT broker（TLS）
 MQTT_HOST = "cn.mqtt.bambulab.com"
 MQTT_PORT = 8883
@@ -411,6 +415,8 @@ _monitors_lock = threading.Lock()
 @app.route("/api/monitor/start", methods=["POST"])
 def monitor_start():
     """开始监控一台打印机：建立 MQTT 连接。"""
+    if IS_SERVERLESS:
+        return jsonify(ok=False, error="当前部署环境（Vercel 等 serverless）不支持实时监控，请在本机运行或使用常驻进程的平台。"), 501
     data = request.get_json(silent=True) or {}
     token = (data.get("token") or "").strip()
     serial = (data.get("serial") or "").strip()
