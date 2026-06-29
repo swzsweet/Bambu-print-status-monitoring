@@ -53,9 +53,10 @@
     .modal-mask {
       position: fixed; inset: 0; background: rgba(15,18,23,.45);
       display: flex; align-items: center; justify-content: center; padding: 20px;
-      opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 60;
+      opacity: 0; visibility: hidden; pointer-events: none;
+      transition: opacity .2s, visibility 0s linear .2s; z-index: 60;
     }
-    .modal-mask.show { opacity: 1; pointer-events: auto; }
+    .modal-mask.show { opacity: 1; visibility: visible; pointer-events: auto; transition: opacity .2s; }
     .modal {
       width: 100%; max-width: 360px; max-height: calc(100vh - 40px); overflow-y: auto;
       background: #fff; border-radius: 16px; padding: 22px 24px;
@@ -142,8 +143,14 @@
     .mon-k { font-size: 11px; color: var(--muted); margin-bottom: 5px; }
     .mon-v { font-size: 18px; font-weight: 600; }
     .mon-v small { font-size: 12px; font-weight: 400; color: var(--muted); margin-left: 2px; }
-    .mon-subs { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
-    .mon-sub label { margin-top: 0; }
+    .mon-sub-full { margin-top: 16px; }
+    .mon-sub-full label { margin-top: 0; }
+    .hms-btn {
+      flex: none; height: 30px; display: flex; align-items: center; gap: 4px;
+      padding: 0 10px; border-radius: 20px; background: #fdeaea; color: var(--danger);
+      border: 1px solid #f6cccc; font-size: 12px; font-weight: 600;
+    }
+    .hms-btn:hover { background: #fbdcdc; }
     .ams-wrap { display: flex; flex-wrap: wrap; gap: 8px; }
     .ams-slot { display: flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; font-size: 12px; }
     .ams-chip { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(0,0,0,.15); }
@@ -203,6 +210,10 @@
           <div class="mon-head">
             <span id="monTitle" data-i18n="realtimeStatus">实时状态</span>
             <div class="mon-head-right">
+              <button class="hms-btn" id="hmsBtn" type="button" data-i18n-title="hms" title="故障码 (HMS)" style="display:none;">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                <span id="hmsCount">0</span>
+              </button>
               <span class="mon-status" id="monStatus" data-i18n="connecting">连接中…</span>
               <button class="icon-btn-sm" id="monStopBtn" type="button" data-i18n-title="stopMonitor" title="停止监控">
                 <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
@@ -226,15 +237,9 @@
             <div class="mon-cell"><div class="mon-k" data-i18n="speed">打印速度</div><div class="mon-v"><span id="mSpeed">—</span></div></div>
           </div>
 
-          <div class="mon-subs">
-            <div class="mon-sub">
-              <label data-i18n="amsFilament">AMS 耗材</label>
-              <div id="mAms" class="ams-wrap"><span class="dev-empty" data-i18n="noAms">暂无 AMS 数据</span></div>
-            </div>
-            <div class="mon-sub">
-              <label data-i18n="hms">故障码 (HMS)</label>
-              <div id="mHms"><span class="dev-empty" data-i18n="noFault">无故障</span></div>
-            </div>
+          <div class="mon-sub-full">
+            <label data-i18n="amsFilament">AMS 耗材</label>
+            <div id="mAms" class="ams-wrap"><span class="dev-empty" data-i18n="noAms">暂无 AMS 数据</span></div>
           </div>
         </div>
 
@@ -301,6 +306,19 @@
     </div>
   </div>
 
+  <!-- 故障码浮窗 -->
+  <div class="modal-mask" id="hmsModal">
+    <div class="modal">
+      <div class="modal-head">
+        <span data-i18n="hms">故障码 (HMS)</span>
+        <button class="icon-btn" id="hmsCloseBtn" type="button" data-i18n-title="close" title="关闭">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </div>
+      <div id="mHms"><span class="dev-empty" data-i18n="noFault">无故障</span></div>
+    </div>
+  </div>
+
   <script>
     const $ = (id) => document.getElementById(id);
 
@@ -346,7 +364,7 @@
         gotIt: "✅ 获取成功！", loginFail: "登录失败", copyFail: "复制失败，请手动选择复制。",
         resend: (n) => `${n}s 后重发`,
         states: { IDLE:"空闲", PREPARE:"准备中", RUNNING:"打印中", PAUSE:"已暂停", FINISH:"已完成", FAILED:"已失败", SLICING:"切片中", unknown:"未知" },
-        speeds: { 1:"静音", 2:"标准", 3:"运动", 4:"高速" },
+        speeds: { 1:"静音", 2:"标准", 3:"运动", 4:"狂暴" },
         empty: "空", hour: "小时", minute: "分",
       },
       en: {
@@ -535,6 +553,12 @@
     const verifyArea = $("verifyArea"), reVerifyBtn = $("reVerifyBtn");
     const accountBtn = $("accountBtn"), accountModal = $("accountModal"), accountCloseBtn = $("accountCloseBtn");
     const monitorPanel = $("monitorPanel"), monStatus = $("monStatus"), monTitle = $("monTitle"), monStopBtn = $("monStopBtn");
+    const hmsBtn = $("hmsBtn"), hmsCount = $("hmsCount"), hmsModal = $("hmsModal"), hmsCloseBtn = $("hmsCloseBtn");
+    function openHms() { if (hmsBtn.style.display !== "none") hmsModal.classList.add("show"); }
+    function closeHms() { hmsModal.classList.remove("show"); }
+    hmsBtn.addEventListener("click", openHms);
+    hmsCloseBtn.addEventListener("click", closeHms);
+    hmsModal.addEventListener("click", (e) => { if (e.target === hmsModal) closeHms(); });
 
     let curToken = "", curSerial = "", lastDevices = [];
     let curUsername = "", mqttClient = null, stateCache = {};
@@ -676,6 +700,7 @@
       $("mBar").style.width = "0%";
       $("mAms").innerHTML = `<span class="dev-empty">${t("noAms")}</span>`;
       $("mHms").innerHTML = `<span class="dev-empty">${t("noFault")}</span>`;
+      hmsBtn.style.display = "none"; closeHms();
     }
     function fmtTime(min) {
       if (min == null || min < 0) return "—";
@@ -704,8 +729,16 @@
       }).join("");
     }
     function renderHms(hms) {
-      if (!hms || !Array.isArray(hms) || !hms.length) { $("mHms").innerHTML = `<span class="dev-empty">${t("noFault")}</span>`; return; }
-      $("mHms").innerHTML = hms.map((h) => {
+      const list = Array.isArray(hms) ? hms : [];
+      if (!list.length) {
+        hmsBtn.style.display = "none";
+        closeHms();
+        $("mHms").innerHTML = `<span class="dev-empty">${t("noFault")}</span>`;
+        return;
+      }
+      hmsBtn.style.display = "flex";
+      hmsCount.textContent = list.length;
+      $("mHms").innerHTML = list.map((h) => {
         const code = ((h.attr >>> 0).toString(16).padStart(8, "0") + "_" + (h.code >>> 0).toString(16).padStart(8, "0")).toUpperCase();
         return `<div class="hms-item">⚠️ ${escapeHtml(code)}</div>`;
       }).join("");
