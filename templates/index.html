@@ -20,7 +20,7 @@
     * { box-sizing: border-box; }
     html { -webkit-text-size-adjust: 100%; }
     body {
-      margin: 0;
+      margin: 0; touch-action: manipulation;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
       background: var(--bg); color: var(--text); min-height: 100vh;
       padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
@@ -151,9 +151,10 @@
       border: 1px solid #f6cccc; font-size: 12px; font-weight: 600;
     }
     .hms-btn:hover { background: #fbdcdc; }
-    .ams-wrap { display: flex; flex-wrap: wrap; gap: 8px; }
-    .ams-slot { display: flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; font-size: 12px; }
-    .ams-chip { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(0,0,0,.15); }
+    .ams-wrap { display: grid; grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); gap: 8px; }
+    .ams-slot { display: flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; font-size: 12px; min-width: 0; }
+    .ams-slot > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ams-chip { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(0,0,0,.15); flex: none; }
     .hms-item { font-size: 12px; color: var(--danger); padding: 4px 0; }
     .footer { margin-top: 18px; text-align: center; font-size: 12px; color: var(--muted); }
     .footer a { color: var(--muted); text-decoration: none; border-bottom: 1px dotted var(--border); }
@@ -224,7 +225,7 @@
           <div class="mon-progress-wrap">
             <div class="mon-progress-info">
               <span id="mPercent">—</span>
-              <span class="mon-remain"><b id="mState">—</b> · <span data-i18n="remain">剩余</span> <span id="mRemain">—</span></span>
+              <span class="mon-remain"><b id="mState">—</b> · <span id="mRemainLabel" data-i18n="remain">剩余</span> <span id="mRemain">—</span></span>
             </div>
             <div class="mon-progress"><div class="mon-progress-bar" id="mBar"></div></div>
           </div>
@@ -337,7 +338,7 @@
         realtimeStatus: "实时状态", connecting: "连接中…", connected: "已连接",
         reconnecting: "重连中…", stopped: "已停止", closed: "连接已关闭",
         connErr: "连接错误：", stopMonitor: "停止监控",
-        remain: "剩余", nozzleTemp: "喷嘴温度", bedTemp: "热床温度", chamberTemp: "腔体温度",
+        remain: "剩余", finishAt: "预计完成", nozzleTemp: "喷嘴温度", bedTemp: "热床温度", chamberTemp: "腔体温度",
         remainTime: "剩余时间", layers: "层数", speed: "打印速度",
         amsFilament: "AMS 耗材", noAms: "暂无 AMS 数据", hms: "故障码 (HMS)", noFault: "无故障",
         warnStatus: "实时状态通过拓竹云 MQTT 订阅 device/序列号/report 获取，数据仅在你的浏览器与本机之间传输。Token 仅暂存在本机浏览器。",
@@ -380,7 +381,7 @@
         realtimeStatus: "Live status", connecting: "Connecting…", connected: "Connected",
         reconnecting: "Reconnecting…", stopped: "Stopped", closed: "Connection closed",
         connErr: "Connection error: ", stopMonitor: "Stop monitoring",
-        remain: "ETA", nozzleTemp: "Nozzle", bedTemp: "Bed", chamberTemp: "Chamber",
+        remain: "ETA", finishAt: "Done at", nozzleTemp: "Nozzle", bedTemp: "Bed", chamberTemp: "Chamber",
         remainTime: "Time left", layers: "Layers", speed: "Speed",
         amsFilament: "AMS filament", noAms: "No AMS data", hms: "Errors (HMS)", noFault: "No faults",
         warnStatus: "Live status is fetched via Bambu Cloud MQTT (device/<serial>/report). Data flows only between your browser and the broker. The token is cached locally in your browser only.",
@@ -563,6 +564,9 @@
     let curToken = "", curSerial = "", lastDevices = [];
     let curUsername = "", mqttClient = null, stateCache = {};
     let monStatusKey = "connecting";   // 记录状态键，供语言切换时重渲染
+    let curRemainMin = null;           // 当前剩余分钟数（null 表示无数据）
+    let etaMode = 0;                   // 0=剩余时长, 1=预计完成时刻
+    let etaTimer = null;               // 自动切换计时器
 
     function openAccount() { accountModal.classList.add("show"); }
     function closeAccount() { accountModal.classList.remove("show"); }
@@ -654,6 +658,7 @@
       monTitle.textContent = name || t("printer");
       setMonStatus("connecting");
       resetMonitorView();
+      startEtaCycle();
       monitorPanel.classList.add("show");
       if (typeof mqtt === "undefined") { setMonStatus("error", t("mqttUnloaded")); return; }
 
@@ -680,7 +685,7 @@
       client.on("error", (e) => setMonStatus("error", t("connErr") + (e && e.message ? e.message : "")));
       client.on("close", () => { if (mqttClient === client) setMonStatus("error", t("closed")); });
     }
-    function stopMonitor() { if (mqttClient) { try { mqttClient.end(true); } catch {} mqttClient = null; } }
+    function stopMonitor() { stopEtaCycle(); if (mqttClient) { try { mqttClient.end(true); } catch {} mqttClient = null; } }
     monStopBtn.addEventListener("click", () => {
       stopMonitor(); setMonStatus("stopped");
       monitorPanel.classList.remove("show");
@@ -697,6 +702,8 @@
     function resetMonitorView() {
       ["mNozzle","mBed","mChamber","mState","mPercent","mRemain","mLayer","mSpeed"].forEach((id) => $(id).textContent = "—");
       $("mNozzleT").textContent = ""; $("mBedT").textContent = "";
+      $("mRemainLabel").textContent = t("remain");
+      curRemainMin = null; etaMode = 0;
       $("mBar").style.width = "0%";
       $("mAms").innerHTML = `<span class="dev-empty">${t("noAms")}</span>`;
       $("mHms").innerHTML = `<span class="dev-empty">${t("noFault")}</span>`;
@@ -707,6 +714,28 @@
       const h = Math.floor(min / 60), m = min % 60;
       return h > 0 ? `${h}${t("hour")}${m}${t("minute")}` : `${m}${t("minute")}`;
     }
+    function fmtClock(min) {
+      const d = new Date(Date.now() + min * 60000);
+      const hh = String(d.getHours()).padStart(2, "0"), mm = String(d.getMinutes()).padStart(2, "0");
+      const sameDay = d.toDateString() === new Date().toDateString();
+      return sameDay ? `${hh}:${mm}` : `${d.getMonth() + 1}/${d.getDate()} ${hh}:${mm}`;
+    }
+    // 剩余时长 / 预计完成时刻 双形态渲染
+    function renderEta() {
+      if (curRemainMin == null || curRemainMin < 0) {
+        $("mRemainLabel").textContent = t("remain"); $("mRemain").textContent = "—"; return;
+      }
+      if (etaMode === 1) { $("mRemainLabel").textContent = t("finishAt"); $("mRemain").textContent = fmtClock(curRemainMin); }
+      else { $("mRemainLabel").textContent = t("remain"); $("mRemain").textContent = fmtTime(curRemainMin); }
+    }
+    function startEtaCycle() {
+      if (etaTimer) clearInterval(etaTimer);
+      etaTimer = setInterval(() => {
+        if (curRemainMin == null || curRemainMin < 0) return;
+        etaMode = etaMode ? 0 : 1; renderEta();
+      }, 5000);
+    }
+    function stopEtaCycle() { if (etaTimer) { clearInterval(etaTimer); etaTimer = null; } }
     function renderState(s) {
       const num = (v) => (v == null ? "—" : v);
       if (s.nozzle_temper != null) { $("mNozzle").textContent = Math.round(s.nozzle_temper) + "°"; $("mNozzleT").textContent = s.nozzle_target_temper != null ? "/ " + Math.round(s.nozzle_target_temper) + "°" : ""; }
@@ -714,7 +743,7 @@
       if (s.chamber_temper != null) $("mChamber").textContent = Math.round(s.chamber_temper) + "°";
       if (s.gcode_state != null) $("mState").textContent = (t("states")[s.gcode_state] || s.gcode_state);
       if (s.mc_percent != null) { $("mPercent").textContent = s.mc_percent + "%"; $("mBar").style.width = Math.max(0, Math.min(100, s.mc_percent)) + "%"; }
-      if (s.mc_remaining_time != null) $("mRemain").textContent = fmtTime(s.mc_remaining_time);
+      if (s.mc_remaining_time != null) { curRemainMin = s.mc_remaining_time; renderEta(); }
       if (s.layer_num != null || s.total_layer_num != null) $("mLayer").textContent = `${num(s.layer_num)} / ${num(s.total_layer_num)}`;
       if (s.spd_lvl != null) $("mSpeed").textContent = (t("speeds")[s.spd_lvl] || s.spd_lvl);
       renderAms(s.ams); renderHms(s.hms);
@@ -725,7 +754,7 @@
       if (!trays.length) { $("mAms").innerHTML = `<span class="dev-empty">${t("noAms")}</span>`; return; }
       $("mAms").innerHTML = trays.map((x) => {
         const color = x.tray_color ? "#" + String(x.tray_color).slice(0, 6) : "#ddd";
-        return `<div class="ams-slot"><span class="ams-chip" style="background:${escapeHtml(color)}"></span>${escapeHtml(x.tray_type || t("empty"))}</div>`;
+        return `<div class="ams-slot"><span class="ams-chip" style="background:${escapeHtml(color)}"></span><span>${escapeHtml(x.tray_type || t("empty"))}</span></div>`;
       }).join("");
     }
     function renderHms(hms) {
@@ -752,6 +781,7 @@
       // 重渲染动态内容
       if (lastDevices.length) renderDevList(lastDevices);
       if (mqttClient && Object.keys(stateCache).length) renderState(stateCache);
+      renderEta();
       if (monStatusKey) setMonStatus(monStatusKey);
     });
 
